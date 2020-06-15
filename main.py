@@ -186,9 +186,15 @@ def percents_gent(npixels, smallstep, bigstep, offset):
             yield [left, right]
 
 def get_offset(raster_one, raster_two, top):
+    """Computes the x and y offfset between rasters in projection units.
+    Parameters
+    ----------
+    raster_one, raster_two: obj, Raster
+        
+    top : list, [int, int]
+        coordinates of the top left overlapping pixel from raster one.
     """
-    """
-    # TODO : not completely clean
+    # TODO : not completely clean : raster_two also should have a top pixel.
     coords_one = rio.transform.xy(raster_one.transform, top[0], top[1], offset='ul')
     coords_two = rio.transform.xy(raster_two.transform, 0, 0, offset='ul')
     
@@ -197,11 +203,17 @@ def get_offset(raster_one, raster_two, top):
     return [xoffset, yoffset]
 
 def illustrate_overlap(x_toduplicate, y_toduplicate, outpath=None):
-    """
+    """creates and shows the overlapping pattern between rasters. For 
+    verification and lulz.
+    
+    Parameters
+    ----------
+    input_one, input_two : str
+        paths to the rasters in a format readable by rasterio
+    
     """
     overlap_bool = np.repeat(x_toduplicate[np.newaxis,...].astype(int), y_toduplicate.size, axis=0)
     overlap_bool = overlap_bool + y_toduplicate[:,np .newaxis].astype(int)
-    # TODO : output this matrix, and check how it fits with my rasters.
     plt.imshow(overlap_bool[0:30,0:30])
     plt.show()
     plt.clf()
@@ -267,7 +279,11 @@ def extend_values(rasterone, shape, x_indices, y_indices):
 
 
 def main(rasterone, rastertwo, output=None, area=None, ilus=True):
-    """
+    """from two rasters with same projection and rotation parameters, but
+    with different resolution, computes the % of overlap or 
+    weighted mean in each pixel of the raster with less resolution.
+    # TODO : Could also go the other way : and just use the rasters orders.
+    But this would have to be tested.
     """    
     startTime = time.time()
     

@@ -240,10 +240,10 @@ def set_rasters(input_one, input_two):
         Raster objects based on the input paths.
     """
     with rio.open(input_one) as src:
-        step_one = src.profile['transform']
+        step_one = src.profile['transform'][0]
     with rio.open(input_two) as src:
-        step_two = src.profile['transform']
-    if step_one > step_two: 
+        step_two = src.profile['transform'][0]
+    if np.abs(step_one) > np.abs(step_two): 
         rastertwo = input_one
         rasterone = input_two
     else: 
@@ -267,10 +267,12 @@ def extend_values(rasterone, shape, x_indices, y_indices):
     """
     data = rasterone.read()
     values_extended = np.ones(shape)
+    logging.debug("Begin x extension ")
+
     for i, value_line in enumerate(data):
-        values_extended [i] = np.insert(value_line, y_indices, 
+        values_extended[i] = np.insert(value_line, y_indices, 
                                                 value_line[y_indices])
-        
+    logging.debug("x extension done")
     for i, value_column in enumerate(
                         values_extended .T[0:data.shape[0]+x_indices.size,:]):
         values_extended .T[i] = np.insert(value_column, x_indices, value_column[x_indices]
@@ -305,9 +307,10 @@ def main(rasterone, rastertwo, output=None, area=None, ilus=True):
     overlap_x = np.around(np.array([c for c in xoverlap]), decimals=5)
     overlap_y = np.around(np.array([c for c in yoverlap]), decimals=5)
     # When the first pixel overlaps, its left overlap does not exist.
-    if xoffset != 0:
+    # TODO : Check how valid this condition is. Should probably be !=0
+    if xoffset > 0:
         overlap_x[0,0] = 0
-    if yoffset != 0:
+    if yoffset > 0:
         overlap_y[0,0] = 0
      
     #remove 0
@@ -342,7 +345,8 @@ def main(rasterone, rastertwo, output=None, area=None, ilus=True):
     # Extend values for them to have the shape as the weights
     datashape = rasterone.read().shape
 
-    values_extended = extend_values(rasterone, result_total.shape)
+    values_extended = extend_values(rasterone, result_total.shape,
+                                    x_indices, y_indices)
         
     elapsedTime = time.time() - startTime
     print('function [{}] finished in {} ms, or {} s'.format(
@@ -398,7 +402,7 @@ def main(rasterone, rastertwo, output=None, area=None, ilus=True):
 
 if __name__ =="__main__":
     print("Hello")
-    rasterone = ""
-    rastertwo = ""
-    out = ""
+    rasterone = "/home/eric/DATA/project_r2intersect/DATA/tile_rep_Hansen_GFC-2018-v1.6_lossyear_BINARY.tif"
+    rastertwo = "/home/eric/DATA/project_r2intersect/DATA/V45_10pix_1supports_50badpixls_mean.tif"
+    out = "/home/eric/DATA/project_r2intersect/RESULTS/test_intersects/main/"
     main(rasterone, rastertwo, output=out)

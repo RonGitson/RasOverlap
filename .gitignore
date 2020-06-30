@@ -1,2 +1,3 @@
 bacasab.py
 *.git
+__pycache__/

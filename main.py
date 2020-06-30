@@ -109,12 +109,32 @@ def get_overlap_coords(raster_one, raster_two):
  
     Returns
     -------
+    raster_one_coords, raster_one_coords : list [[top, left], [bottom, right]]
+        Contains the perentage of overlap between the given pixel with his 
+        closest right and left(or upper/under) pixels
+    """
+    raster_one_coords = _small_raster_coords(raster_one, raster_two)
+    raster_two_coords = _big_raster_coords(raster_one, 
+                                          raster_two, raster_one_coords)
+    
+    return raster_one_coords, raster_two_coords 
+
+def _small_raster_coords(raster_one, raster_two):
+    """This gets the coordinates of the top left, and bottom right pixels
+    of raster_one that do overlap raster_two
+    
+    Parameters
+    ----------
+    raster_one, raster_two : obj, Raster
+        Number of pixels for which to compute the overlaps
+ 
+    Returns
+    -------
     [left, right] : list
         Contains the perentage of overlap between the given pixel with his 
         closest right and left(or upper/under) pixels
     """
-    
-    xmargin = 1/2*(raster_one.xstep + raster_two.xstep)
+    xmargin = 1/2*(np.abs(raster_one.xstep) + np.abs(raster_two.xstep))
     ymargin = 1/2*(np.abs(raster_one.ystep) + np.abs(raster_two.ystep))
     
     #Check top
@@ -128,8 +148,8 @@ def get_overlap_coords(raster_one, raster_two):
         testy = (lat>=raster_two.bounds[2]-ymargin and 
                      lat<=raster_two.bounds[3]+ymargin)
         inbound = testx and testy
-        if not testx: x+=1
-        if not testy: y+=1
+        if not testx: y+=1
+        if not testy: x+=1
             
     topleft=[x,y]
     if not inbound:
@@ -152,9 +172,28 @@ def get_overlap_coords(raster_one, raster_two):
     if not inbound:
         logging.error("Failure finding overlap")    
     bottomright = [x,y]
-    return topleft, bottomright
+    return [topleft, bottomright]
 
-def percents_gent(npixels, smallstep, bigstep, offset):
+def _big_raster_coords(raster_one, raster_two, raster_one_coords):
+    """This returns the coordinates of raster two(big raster) the overlap small
+    raster.
+    TODO: I need to get both the x,y and the transform in order to update the 
+    result's profile ---- NOT
+    # I just need the coords (row,col) of raster result that need to be updated
+    """
+    top, bot = raster_one_coords
+    
+    unpack = lambda x : [item for sublist in x for item in sublist]
+    
+    long, lat = rio.transform.xy(raster_one.transform, top[0],top[1])
+    raster_two_top = unpack(rio.transform.rowcol(raster_two.transform, 
+                                                             [long],[lat]))
+    long, lat = rio.transform.xy(raster_one.transform, bot[0], top[1])
+    raster_two_bot = unpack(rio.transform.rowcol(raster_two.transform, 
+                                                             [long],[lat]))
+    return [raster_two_top, raster_two_bot]
+
+def gen_overlap(npixels, smallstep, bigstep, offset):
     """ Generate the percentage of overlap for each pixel. 
     
     Parameters
@@ -185,7 +224,7 @@ def percents_gent(npixels, smallstep, bigstep, offset):
             right = 100 - left
             yield [left, right]
 
-def get_offset(raster_one, raster_two, top):
+def get_offset(raster_one, raster_two, topone, toptwo):
     """Computes the x and y offfset between rasters in projection units.
     Parameters
     ----------
@@ -195,8 +234,10 @@ def get_offset(raster_one, raster_two, top):
         coordinates of the top left overlapping pixel from raster one.
     """
     # TODO : not completely clean : raster_two also should have a top pixel.
-    coords_one = rio.transform.xy(raster_one.transform, top[0], top[1], offset='ul')
-    coords_two = rio.transform.xy(raster_two.transform, 0, 0, offset='ul')
+    coords_one = rio.transform.xy(raster_one.transform, topone[0], 
+                                                      topone[1], offset='ul')
+    coords_two = rio.transform.xy(raster_two.transform, toptwo[0], 
+                                                      toptwo[1], offset='ul')
     
     xoffset = coords_two[0] - coords_one[0]
     yoffset = coords_two[1] - coords_one[1]
@@ -254,6 +295,7 @@ def set_rasters(input_one, input_two):
 
 def extend_values(rasterone, shape, x_indices, y_indices):
     """ Duplicates values of raster at given indices, effectively expanding it.
+    
     Notes
     -----
         The shape could be computed here from raster one, x and y indices..
@@ -280,12 +322,12 @@ def extend_values(rasterone, shape, x_indices, y_indices):
     return values_extended
 
 
-def main(rasterone, rastertwo, output=None, area=None, ilus=True):
+def main(rasterone, rastertwo, output=None, area=True, ilus=True, name=None):
     """from two rasters with same projection and rotation parameters, but
     with different resolution, computes the % of overlap or 
     weighted mean in each pixel of the raster with less resolution.
-    # TODO : Could also go the other way : and just use the rasters orders.
-    But this would have to be tested.
+    # TODO : IF rasters don't completely overlap : use [row,col] of overlap to
+    fill result
     """    
     startTime = time.time()
     
@@ -298,12 +340,14 @@ def main(rasterone, rastertwo, output=None, area=None, ilus=True):
     else:
         pass
     # Get the top and bottom pixels from rasterone overlapping rastertwo
-    top, bot = get_overlap_coords(rasterone, rastertwo)
+    rasterone_coords, rastertwo_coords = get_overlap_coords(rasterone, rastertwo)
     
-    npixels = [bot[0]+1 - top[0], bot[1]-top[1]+1]
-    xoffset, yoffset = get_offset(rasterone, rastertwo, top)
-    xoverlap = percents_gent(npixels[0], rasterone.xstep, rastertwo.xstep, xoffset)
-    yoverlap = percents_gent(npixels[1], rasterone.ystep, rastertwo.ystep, yoffset)
+    topone, botone = rasterone_coords
+    toptwo, bottwo = rastertwo_coords
+    npixels = [botone[0]+1 - topone[0], botone[1]-topone[1]+1]
+    xoffset, yoffset = get_offset(rasterone, rastertwo, topone, toptwo)
+    xoverlap = gen_overlap(npixels[0], rasterone.xstep, rastertwo.xstep, xoffset)
+    yoverlap = gen_overlap(npixels[1], rasterone.ystep, rastertwo.ystep, yoffset)
     overlap_x = np.around(np.array([c for c in xoverlap]), decimals=5)
     overlap_y = np.around(np.array([c for c in yoverlap]), decimals=5)
     # When the first pixel overlaps, its left overlap does not exist.
@@ -349,8 +393,8 @@ def main(rasterone, rastertwo, output=None, area=None, ilus=True):
                                     x_indices, y_indices)
         
     elapsedTime = time.time() - startTime
-    print('function [{}] finished in {} ms, or {} s'.format(
-        'before big loop', int(elapsedTime * 1000), int(elapsedTime)))
+    print('function [{}] finished in {} ms'.format(
+        'before big loop', int(elapsedTime * 1000)))
     
     # add min and max limits to indices if needed.
     if x_indices[0] != 0:
@@ -365,7 +409,10 @@ def main(rasterone, rastertwo, output=None, area=None, ilus=True):
 
     # TODO : for now, all pixels from raster two are considered overlapped.
     #Offset should have an impact here.
-    result = np.ones_like(rastertwo.read())      
+    
+    top, bot = rastertwo_coords
+    npixels = [bot[0]+1 - top[0], bot[1]-top[1]+1]
+    result = np.ones(npixels)      
     # produce the indices for the extented matrices
     # TODO : check why +1 needed in y and not in x...
     x_extended_index = x_indices + np.arange(x_indices.size)
@@ -376,7 +423,9 @@ def main(rasterone, rastertwo, output=None, area=None, ilus=True):
                                     y_extended_index[j]:y_extended_index[j+1]]
             weights = weights_total[x_extended_index[i]:x_extended_index[i+1],
                                     y_extended_index[j]:y_extended_index[j+1]]/100
-            try : 
+            try :
+                # TODO : here, i, j have to be modified so that only overlapping
+                # part is filled.
                 result[i,j] = np.sum(values * weights)
             except IndexError: # end of raster 2
                 pass
@@ -385,8 +434,11 @@ def main(rasterone, rastertwo, output=None, area=None, ilus=True):
         result = np.round(result * np.abs(rasterone.xstep*rasterone.ystep)  
                           / (np.abs(rastertwo.ystep*rastertwo.xstep)),2)*100
     
-    
-    output = os.path.join(output, "test_result2")
+    if name is None:
+        name = 'roverlap'
+    if output is None:
+        output = os.path.dirname(rasterone)
+    output = os.path.join(output, name)
     profile = rastertwo.profile
     profile.update(dtype=rio.int32,
                    nodata=-1)
@@ -402,7 +454,33 @@ def main(rasterone, rastertwo, output=None, area=None, ilus=True):
 
 if __name__ =="__main__":
     print("Hello")
-    rasterone = "/home/eric/DATA/project_r2intersect/DATA/tile_rep_Hansen_GFC-2018-v1.6_lossyear_BINARY.tif"
+    #my test
+    rasterone = "/home/eric/DATA/Trinidad/DATA/HANSEN/reproj/tile/tile_rep_Hansen_GFC-2018-v1.6_lossyear_BINARY_2015-2018.tif"
+#    rasterone = "/home/eric/DATA/project_r2intersect/DATA/tile_rep_Hansen_GFC-2018-v1.6_lossyear_BINARY.tif"
     rastertwo = "/home/eric/DATA/project_r2intersect/DATA/V45_10pix_1supports_50badpixls_mean.tif"
-    out = "/home/eric/DATA/project_r2intersect/RESULTS/test_intersects/main/"
-    main(rasterone, rastertwo, output=out)
+    out = "/home/eric/DATA/Trinidad/DATA/ROVERLAP/"
+    name= "overlap_loss_2015-2018"
+
+
+    #test marc
+#    rasterone = "/home/eric/DATA/project_r2intersect/DATA/marctest/high_res.tif"
+#    rastertwo = "/home/eric/DATA/project_r2intersect/DATA/marctest/low_res.tif"
+#    out = "/home/eric/DATA/Trinidad/DATA/ROVERLAP/"
+#    name= "overlap_marc"
+    main(rasterone, rastertwo, output=out, name=name)
+    """
+    import sys
+    sys.path.append("/home/eric/DATA/scripts/NOTMINE/RasterIntersect/raster-intersection/raster_intersection")
+    import raster_intersection
+    
+    hrs = rasterone
+    lrs = rastertwo
+    dst = out+name
+    nomen = "/home/eric/DATA/project_r2intersect/DATA/marctest/nomenclature.txt"
+    marc(hrs, lrs, dst, nomen=nomen)
+    """
+    
+    
+    
+    
+    

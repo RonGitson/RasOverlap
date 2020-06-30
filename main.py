@@ -13,6 +13,11 @@ import logging.config
 import time
 import helpers
 
+
+
+logging.config.fileConfig('logging_config.ini')
+logger = logging.getLogger(__name__)
+
 def main(rasterone, rastertwo, output=None, area=True, ilus=True, name=None):
     """from two rasters with same projection and rotation parameters, but
     with different resolution, computes the % of overlap or 
@@ -36,17 +41,21 @@ def main(rasterone, rastertwo, output=None, area=True, ilus=True, name=None):
     toptwo, bottwo = rastertwo_coords
     
     #n pixels has just the shape of the overlapping area
-    npixels = [botone[0]+1 - topone[0], botone[1]-topone[1]+1]
+    #----------get the weights (overlap % for x and y)
+    npixels = [botone[0]-topone[0], botone[1]-topone[1]]
     xoffset, yoffset = helpers.get_offset(rasterone, rastertwo, topone, toptwo)
+    logging.debug("Begin overlap generation for x")
     xoverlap = helpers.gen_overlap(npixels[0], rasterone.xstep, rastertwo.xstep, xoffset)
-    yoverlap = helpers.gen_overlap(npixels[1], rasterone.ystep, rastertwo.ystep, yoffset)
+    logging.debug("Begin overlap generation for y")
+    yoverlap = helpers.gen_overlap(npixels[1], np.abs(rasterone.ystep), 
+                                   np.abs(rastertwo.ystep), -yoffset)
     overlap_x = np.around(np.array([c for c in xoverlap]), decimals=5)
     overlap_y = np.around(np.array([c for c in yoverlap]), decimals=5)
     # When the first pixel overlaps, its left overlap does not exist.
     # TODO : Check how valid this condition is. Should probably be !=0
-    if xoffset > 0:
+    if xoffset != 0:
         overlap_x[0,0] = 0
-    if yoffset > 0:
+    if yoffset != 0:
         overlap_y[0,0] = 0
      
     #remove 0
@@ -75,19 +84,21 @@ def main(rasterone, rastertwo, output=None, area=True, ilus=True, name=None):
     result_total = result.T * weights_y 
     weights_total = result_total /100
     
+    #---------------------duplicate data values to match weights shape
+    
     x_indices = np.where(x_toduplicate==1)[0]
     y_indices = np.where(y_toduplicate==1)[0]
     
     # Extend values for them to have the shape as the weights
-    datashape = rasterone.read().shape
 
     values_extended = helpers.extend_values(rasterone, result_total.shape,
-                                    x_indices, y_indices)
+                                    x_indices, y_indices, topone, botone)
         
     elapsedTime = time.time() - startTime
     print('function [{}] finished in {} ms'.format(
         'before big loop', int(elapsedTime * 1000)))
     
+    datashape = rasterone.shape
     # add min and max limits to indices if needed.
     if x_indices[0] != 0:
         x_indices = np.insert(x_indices, 0,0)
@@ -99,13 +110,8 @@ def main(rasterone, rastertwo, output=None, area=True, ilus=True, name=None):
     if y_indices[-1] != datashape[0]:
         y_indices = np.append(y_indices, datashape[0])
 
-    # TODO : for now, all pixels from raster two are considered overlapped.
-    #Offset should have an impact here.
-    
-    top, bot = rastertwo_coords
-    
-    
-    result = np.ones(npixels) - 1      
+
+    result = np.ones((len(x_indices)-1, len(y_indices)-1)) -1    
     # produce the indices for the extented matrices
     # TODO : check why +1 needed in y and not in x...
     x_extended_index = x_indices + np.arange(x_indices.size)
@@ -152,18 +158,20 @@ def main(rasterone, rastertwo, output=None, area=True, ilus=True, name=None):
 if __name__ =="__main__":
     print("Hello")
     #my test
-#    rasterone = "/home/eric/DATA/Trinidad/DATA/HANSEN/reproj/tile/tile_rep_Hansen_GFC-2018-v1.6_lossyear_BINARY_2015-2018.tif"
     rasterone = "/home/eric/DATA/project_r2intersect/DATA/tile_rep_Hansen_GFC-2018-v1.6_lossyear_BINARY.tif"
     rastertwo = "/home/eric/DATA/project_r2intersect/DATA/V45_10pix_1supports_50badpixls_mean.tif"
     out = "/home/eric/DATA/Trinidad/DATA/ROVERLAP/"
-    name= "overlap_loss_2015-2018_v2"
+    name= "overlap_loss_2015-2018_v4"
 
 
     #test marc
 #    rasterone = "/home/eric/DATA/project_r2intersect/DATA/marctest/high_res.tif"
 #    rastertwo = "/home/eric/DATA/project_r2intersect/DATA/marctest/low_res.tif"
 #    out = "/home/eric/DATA/Trinidad/DATA/ROVERLAP/"
-#    name= "overlap_marc"
+#    name= "overlap_marc_v2"
+#    
+    
+    
     main(rasterone, rastertwo, output=out, name=name)
     """
     import sys

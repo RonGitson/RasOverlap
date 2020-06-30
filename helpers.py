@@ -50,13 +50,14 @@ class Raster:
         Numeric error code.
     code : int
         Numeric error code.
+        
+    #TODO : add top and bot interesect as properties of Raster class
 
     """
 
     def __init__(self, path):
 
         if os.path.exists(path):
-            logging.info('Initializing from HDF5 file')
             self.path = path
         else:
             logging.error("Bad path.")
@@ -65,6 +66,8 @@ class Raster:
             self.profile = src.profile
             self.bounds =  [src.bounds.left, src.bounds.right, 
                             src.bounds.bottom, src.bounds.top]
+            self.shape = np.squeeze(src.read()).shape
+        
         self.transform = self.profile['transform']
         self.xstep = self.transform[0]
         self.ystep = self.transform[4]
@@ -138,41 +141,66 @@ def _small_raster_coords(raster_one, raster_two):
     ymargin = 1/2*(np.abs(raster_one.ystep) + np.abs(raster_two.ystep))
     
     #Check top
-    inbound = False
+    xinbound = False
     x = y = 0
-    while not inbound and (x<raster_one.width and y<raster_one.height):
+    while not xinbound and (x<raster_one.width and y<raster_one.height):
         long, lat = rio.transform.xy(raster_one.transform, [x],[y])
         long, lat = long[0], lat[0]
         testx = (long>=raster_two.bounds[0]-xmargin and 
                      long<=raster_two.bounds[1]+xmargin)
         testy = (lat>=raster_two.bounds[2]-ymargin and 
                      lat<=raster_two.bounds[3]+ymargin)
-        inbound = testx and testy
+        xinbound = testx and testy
         if not testx: y+=1
         if not testy: x+=1
             
     topleft=[x,y]
-    if not inbound:
+    if not xinbound:
         logging.error("Failure finding overlap")
         topleft = 0
     #Check bottom
     x = raster_one.width - 1
     y = raster_one.height - 1
-    while not inbound and (x>=0 and y>=0) :
+    yinbound = False
+    while not yinbound and (x>=0 and y>=0) :
+        long, lat = rio.transform.xy(raster_one.transform, [x],[y])
+        long, lat = long[0], lat[0]
+        testx = (long>=raster_two.bounds[0]-xmargin and 
+                     long<=raster_two.bounds[1]+xmargin)
+        testy = (lat>=raster_two.bounds[2]-ymargin and 
+                     lat<=raster_two.bounds[3]+ymargin)
+        yinbound = testx and testy
+        if not testx: y -= 1
+        if not testy: x -= 1
+    
+    bottomright = [x,y]     
+    if not yinbound:
+        logging.error("Failure finding overlap")    
+  
+    return [topleft, bottomright]
+
+def getinbound(raster_one, raster_two):
+    """
+    x = raster_one.width - 1
+    y = raster_one.height - 1
+    yinbound = False
+    while not yinbound and x>=0 :
         long, lat = rio.transform.xy(raster_one.transform, [x],[y])
         long, lat = long[0], lat[0]
 
         testx = (long>=raster_two.bounds[0]-xmargin and 
                      long<=raster_two.bounds[1]+xmargin)
-        testy = (lat>=raster_two.bounds[2]-ymargin and 
-                     lat<=raster_two.bounds[3]+ymargin)
-        inbound = testx and testy
+        yinbound = testx and testy
         if not testx: x-=1
         if not testy: y-=1
-    if not inbound:
+    if not yinbound:
         logging.error("Failure finding overlap")    
     bottomright = [x,y]
-    return [topleft, bottomright]
+    """
+
+    return
+
+
 
 def _big_raster_coords(raster_one, raster_two, raster_one_coords):
     """This returns the coordinates of raster two(big raster) the overlap small
@@ -180,17 +208,22 @@ def _big_raster_coords(raster_one, raster_two, raster_one_coords):
     TODO: I need to get both the x,y and the transform in order to update the 
     result's profile ---- NOT
     # I just need the coords (row,col) of raster result that need to be updated
+    # Inbound coords ensures raster_one_coords overlap rastertwo. However, they
+    may overlap at -1 first. In this case +=1
     """
     top, bot = raster_one_coords
     
     unpack = lambda x : [item for sublist in x for item in sublist]
-    
+    addone = lambda x : [item+1 if item==-1 else item for item in x]
     long, lat = rio.transform.xy(raster_one.transform, top[0],top[1])
     raster_two_top = unpack(rio.transform.rowcol(raster_two.transform, 
                                                              [long],[lat]))
+    
     long, lat = rio.transform.xy(raster_one.transform, bot[0], bot[1])
     raster_two_bot = unpack(rio.transform.rowcol(raster_two.transform, 
                                                              [long],[lat]))
+    raster_two_top = addone(raster_two_top)
+    raster_two_bot = addone(raster_two_bot)
     return [raster_two_top, raster_two_bot]
 
 def gen_overlap(npixels, smallstep, bigstep, offset):
@@ -212,16 +245,22 @@ def gen_overlap(npixels, smallstep, bigstep, offset):
     [left, right] : list
         Contains the perentage of overlap between the given pixel with his 
         closest right and left(or upper/under) pixels
+        
+        
+    Note:
+        Xone - offset
     """
     for cellnumber in range(npixels):
-        inside = ((cellnumber*smallstep)-offset)//bigstep==(((cellnumber+1)*smallstep)-offset)//bigstep
+        inside = ((cellnumber*smallstep)-offset)//bigstep== \
+                    (((cellnumber+1)*smallstep)-offset)//bigstep
         if inside:
             yield [100,0]
         else:
-            nbigsteps = ((cellnumber+1)*smallstep)//bigstep
-            left = 100*( ( (bigstep * nbigsteps)  \
-                         - ((cellnumber*smallstep)-offset)) / smallstep)
+            nbigsteps = (((cellnumber+1)*smallstep)- offset )//bigstep
+            temp =  (bigstep * nbigsteps) - ((cellnumber*smallstep)-offset)
+            left = 100*temp /smallstep
             right = 100 - left
+            
             yield [left, right]
 
 def get_offset(raster_one, raster_two, topone, toptwo):
@@ -293,7 +332,7 @@ def set_rasters(input_one, input_two):
 
     return Raster(rasterone), Raster(rastertwo)
 
-def extend_values(rasterone, shape, x_indices, y_indices):
+def extend_values(rasterone, shape, x_indices, y_indices, topone, botone):
     """ Duplicates values of raster at given indices, effectively expanding it.
     
     Notes
@@ -307,154 +346,22 @@ def extend_values(rasterone, shape, x_indices, y_indices):
         x_indices, y_indices : 
         
     """
-    data = rasterone.read()
-    values_extended = np.ones(shape)
+    data = rasterone.read()[topone[0]:botone[0], topone[1]:botone[1]]
+    values_extended = np.ones(shape)-1
     logging.debug("Begin x extension ")
-
+    logging.debug("Shape values_extended : ", values_extended.shape)
+    
     for i, value_line in enumerate(data):
         values_extended[i] = np.insert(value_line, y_indices, 
                                                 value_line[y_indices])
     logging.debug("x extension done")
     for i, value_column in enumerate(
-                        values_extended .T[0:data.shape[0]+x_indices.size,:]):
-        values_extended .T[i] = np.insert(value_column, x_indices, value_column[x_indices]
-                                                )[0:values_extended.shape[0]]
+                        values_extended.T[0:data.shape[0]+x_indices.size,:]):
+        values_extended.T[i] = np.insert(value_column, x_indices, 
+                         value_column[x_indices])[0:values_extended.shape[0]]
     return values_extended
 
 
-def main(rasterone, rastertwo, output=None, area=True, ilus=True, name=None):
-    """from two rasters with same projection and rotation parameters, but
-    with different resolution, computes the % of overlap or 
-    weighted mean in each pixel of the raster with less resolution.
-    # TODO : IF rasters don't completely overlap : use [row,col] of overlap to
-    fill result
-    """    
-    startTime = time.time()
-    
-    rasterone, rastertwo = set_rasters(rasterone, rastertwo)
-    
-    pof = check_rotation(rasterone, rastertwo)
-    if pof==False:
-        logging.error('Not same rotation on rasters')
-        return
-    else:
-        pass
-    # Get the top and bottom pixels from rasterone overlapping rastertwo
-    rasterone_coords, rastertwo_coords = get_overlap_coords(rasterone, rastertwo)
-    
-    topone, botone = rasterone_coords
-    toptwo, bottwo = rastertwo_coords
-    npixels = [botone[0]+1 - topone[0], botone[1]-topone[1]+1]
-    xoffset, yoffset = get_offset(rasterone, rastertwo, topone, toptwo)
-    xoverlap = gen_overlap(npixels[0], rasterone.xstep, rastertwo.xstep, xoffset)
-    yoverlap = gen_overlap(npixels[1], rasterone.ystep, rastertwo.ystep, yoffset)
-    overlap_x = np.around(np.array([c for c in xoverlap]), decimals=5)
-    overlap_y = np.around(np.array([c for c in yoverlap]), decimals=5)
-    # When the first pixel overlaps, its left overlap does not exist.
-    # TODO : Check how valid this condition is. Should probably be !=0
-    if xoffset > 0:
-        overlap_x[0,0] = 0
-    if yoffset > 0:
-        overlap_y[0,0] = 0
-     
-    #remove 0
-    weights_x = overlap_x.ravel()
-    weights_x = overlap_x[overlap_x>0]
-    weights_y = overlap_y.ravel()
-    weights_y = overlap_y[overlap_y>0]
-    
-    #x and y_toduplicate are the positions where pixels are cut(!=100) so
-    # the values of rasters need to be duplicated to correspond.
-    x_toduplicate = np.array([x[0]!=100 for x in overlap_x])
-    y_toduplicate = np.array([y[0]!=100 for y in overlap_y])
-    
-    #---------------------illus overlap
-    #This is just an illustration : print out the raster showing if a pixel if
-    # inside or overlaps two/four pixels.
-    if ilus : illustrate_overlap(x_toduplicate, y_toduplicate)
-    #-----------------------Continuing
-    if xoffset > 0:
-        x_toduplicate[0] = False 
-    if yoffset > 0:
-        y_toduplicate[0] = False
-    
-    # weights computation: combination of x and y axis weights
-    result = np.repeat(weights_x[np.newaxis,...], weights_y.size, axis=0)
-    result_total = result.T * weights_y 
-    weights_total = result_total /100
-    
-    x_indices = np.where(x_toduplicate==1)[0]
-    y_indices = np.where(y_toduplicate==1)[0]
-    
-    # Extend values for them to have the shape as the weights
-    datashape = rasterone.read().shape
-
-    values_extended = extend_values(rasterone, result_total.shape,
-                                    x_indices, y_indices)
-        
-    elapsedTime = time.time() - startTime
-    print('function [{}] finished in {} ms'.format(
-        'before big loop', int(elapsedTime * 1000)))
-    
-    # add min and max limits to indices if needed.
-    if x_indices[0] != 0:
-        x_indices = np.insert(x_indices, 0,0)
-    if y_indices[0] != 0:
-        y_indices = np.insert(y_indices, 0,0)
-    
-    if x_indices[-1] != datashape[1]:
-        x_indices = np.append(x_indices, datashape[1])
-    if y_indices[-1] != datashape[0]:
-        y_indices = np.append(y_indices, datashape[0])
-
-    # TODO : for now, all pixels from raster two are considered overlapped.
-    #Offset should have an impact here.
-    
-    top, bot = rastertwo_coords
-    
-    #Here is a critical part : 
-    # i need to assign values where they are needed. So between top and bot.
-    
-    npixels = [bot[0]+1 - top[0], bot[1]-top[1]+1]
-    result = np.ones(npixels) - 1      
-    # produce the indices for the extented matrices
-    # TODO : check why +1 needed in y and not in x...
-    x_extended_index = x_indices + np.arange(x_indices.size)
-    y_extended_index = y_indices + np.arange(y_indices.size)+1
-    for i in range(len(x_indices)-1):
-        for j in range(len(y_indices)-1): 
-            values = values_extended[x_extended_index[i]:x_extended_index[i+1],
-                                    y_extended_index[j]:y_extended_index[j+1]]
-            weights = weights_total[x_extended_index[i]:x_extended_index[i+1],
-                                    y_extended_index[j]:y_extended_index[j+1]]/100
-            try :
-                # TODO : here, i, j have to be modified so that only overlapping
-                # part is filled.
-                result[i,j] = np.sum(values * weights)
-            except IndexError: # end of raster 2
-                pass
-
-    if area:
-        result = np.round(result * np.abs(rasterone.xstep*rasterone.ystep)  
-                          / (np.abs(rastertwo.ystep*rastertwo.xstep)),2)*100
-    
-    if name is None:
-        name = 'roverlap'
-    if output is None:
-        output = os.path.dirname(rasterone)
-    output = os.path.join(output, name)
-    profile = rastertwo.profile
-    profile.update(dtype=rio.int32,
-                   nodata=-1)
-    with rio.open(output, mode='w', **profile) as dst:
-        dst.write(np.expand_dims(result.astype('int32'), axis=0))    
-        
-    
-    elapsedTime = time.time() - startTime
-    print('function [{}] finished in {} ms, or {} s'.format(
-        'The End', int(elapsedTime * 1000), int(elapsedTime)))
-    
-    return
 
 if __name__ =="__main__":
     print("Hello")

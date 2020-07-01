@@ -14,6 +14,11 @@ import time
 
 import matplotlib.pyplot as plt
 
+
+
+logging.config.fileConfig('logging_config.ini')
+logger = logging.getLogger(__name__)
+
 def timing(f):
     def wrap(*args):
         time1 = time.time()
@@ -139,17 +144,19 @@ def _small_raster_coords(raster_one, raster_two):
     """
     xmargin = 1/2*(np.abs(raster_one.xstep) + np.abs(raster_two.xstep))
     ymargin = 1/2*(np.abs(raster_one.ystep) + np.abs(raster_two.ystep))
-    
-    #Check top
+    x_step = 1/2*(np.abs(raster_one.xstep))
+    y_step = 1/2*(np.abs(raster_one.ystep))
+    #Get  top left overlap pixel
     xinbound = False
     x = y = 0
     while not xinbound and (x<raster_one.width and y<raster_one.height):
-        long, lat = rio.transform.xy(raster_one.transform, [x],[y])
+        long, lat = rio.transform.xy(raster_one.transform, [x],[y], 
+                                                     offset='center')
         long, lat = long[0], lat[0]
-        testx = (long>=raster_two.bounds[0]-xmargin and 
-                     long<=raster_two.bounds[1]+xmargin)
-        testy = (lat>=raster_two.bounds[2]-ymargin and 
-                     lat<=raster_two.bounds[3]+ymargin)
+        testx = (long>=raster_two.bounds[0] - x_step and 
+                     long<=raster_two.bounds[1] + x_step)
+        testy = (lat>=raster_two.bounds[2]-y_step and 
+                     lat<=raster_two.bounds[3]+y_step)
         xinbound = testx and testy
         if not testx: y+=1
         if not testy: x+=1
@@ -158,17 +165,19 @@ def _small_raster_coords(raster_one, raster_two):
     if not xinbound:
         logging.error("Failure finding overlap")
         topleft = 0
+        
     #Check bottom
-    x = raster_one.width - 1
+    x = raster_one.width - 1 
     y = raster_one.height - 1
     yinbound = False
     while not yinbound and (x>=0 and y>=0) :
-        long, lat = rio.transform.xy(raster_one.transform, [x],[y])
+        long, lat = rio.transform.xy(raster_one.transform, [x],[y],
+                                                             offset='center')
         long, lat = long[0], lat[0]
-        testx = (long>=raster_two.bounds[0]-xmargin and 
-                     long<=raster_two.bounds[1]+xmargin)
-        testy = (lat>=raster_two.bounds[2]-ymargin and 
-                     lat<=raster_two.bounds[3]+ymargin)
+        testx = (long>=raster_two.bounds[0]- x_step and 
+                     long<=raster_two.bounds[1]+ x_step)
+        testy = (lat>=raster_two.bounds[2]- y_step and 
+                     lat<=raster_two.bounds[3]+ y_step)
         yinbound = testx and testy
         if not testx: y -= 1
         if not testy: x -= 1
@@ -215,6 +224,7 @@ def _big_raster_coords(raster_one, raster_two, raster_one_coords):
     
     unpack = lambda x : [item for sublist in x for item in sublist]
     addone = lambda x : [item+1 if item==-1 else item for item in x]
+    
     long, lat = rio.transform.xy(raster_one.transform, top[0],top[1])
     raster_two_top = unpack(rio.transform.rowcol(raster_two.transform, 
                                                              [long],[lat]))
@@ -272,7 +282,6 @@ def get_offset(raster_one, raster_two, topone, toptwo):
     top : list, [int, int]
         coordinates of the top left overlapping pixel from raster one.
     """
-    # TODO : not completely clean : raster_two also should have a top pixel.
     coords_one = rio.transform.xy(raster_one.transform, topone[0], 
                                                       topone[1], offset='ul')
     coords_two = rio.transform.xy(raster_two.transform, toptwo[0], 

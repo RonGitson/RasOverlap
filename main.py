@@ -402,7 +402,7 @@ def main(rasterone, rastertwo, output=None, area=None, ilus=True):
 
 if __name__ =="__main__":
     print("Hello")
-    rasterone = "/home/eric/DATA/project_r2intersect/DATA/tile_rep_Hansen_GFC-2018-v1.6_lossyear_BINARY.tif"
-    rastertwo = "/home/eric/DATA/project_r2intersect/DATA/V45_10pix_1supports_50badpixls_mean.tif"
-    out = "/home/eric/DATA/project_r2intersect/RESULTS/test_intersects/main/"
+    rasterone = "../project_r2intersect/DATA/tile_rep_Hansen_GFC-2018-v1.6_lossyear_BINARY.tif"
+    rastertwo = "../project_r2intersect/DATA/V45_10pix_1supports_50badpixls_mean.tif"
+    out = "../project_r2intersect/RESULTS/test_intersects/main/"
     main(rasterone, rastertwo, output=out)
